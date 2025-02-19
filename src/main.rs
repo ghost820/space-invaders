@@ -30,11 +30,22 @@ async fn main() {
         ])
         .await,
     );
+    let proj_textures: Rc<Vec<Texture2D>> = Rc::new(
+        load_textures(&[
+            "assets/projectile/proj_001.png",
+            "assets/projectile/proj_002.png",
+            "assets/projectile/proj_003.png",
+            "assets/projectile/proj_004.png",
+            "assets/projectile/proj_005.png",
+        ])
+        .await,
+    );
 
     let mut player = Ship::new(
         screen_width() / 2.0,
         screen_height() - 180.0,
         player_textures.clone(),
+        proj_textures.clone(),
     );
 
     loop {
@@ -46,7 +57,9 @@ async fn main() {
         if is_key_down(KeyCode::D) {
             player.mov(5.0);
         }
-        if is_key_down(KeyCode::Space) {}
+        if is_key_pressed(KeyCode::Space) {
+            player.shoot();
+        }
 
         player.update();
 
@@ -60,16 +73,25 @@ struct Ship {
     x: f32,
     y: f32,
     textures: Rc<Vec<Texture2D>>,
+    proj_textures: Rc<Vec<Texture2D>>,
+    projectiles: Vec<Projectile>,
     current_frame: usize,
     frame_time_elapsed: f32,
 }
 
 impl Ship {
-    fn new(x: f32, y: f32, textures: Rc<Vec<Texture2D>>) -> Self {
+    fn new(
+        x: f32,
+        y: f32,
+        textures: Rc<Vec<Texture2D>>,
+        proj_textures: Rc<Vec<Texture2D>>,
+    ) -> Self {
         Ship {
             x,
             y,
             textures,
+            proj_textures,
+            projectiles: Vec::new(),
             current_frame: 0,
             frame_time_elapsed: 0.0,
         }
@@ -79,6 +101,14 @@ impl Ship {
         self.x += delta;
     }
 
+    fn shoot(&mut self) {
+        self.projectiles.push(Projectile::new(
+            self.x - 3.0,
+            self.y + 20.0,
+            self.proj_textures.clone(),
+        ));
+    }
+
     fn update(&mut self) {
         self.frame_time_elapsed += get_frame_time();
         if self.frame_time_elapsed >= 0.1 {
@@ -86,10 +116,55 @@ impl Ship {
 
             self.frame_time_elapsed = 0.0;
         }
+
+        self.projectiles.retain(|proj| !proj.can_be_removed());
+        for proj in self.projectiles.iter_mut() {
+            proj.update();
+        }
     }
 
     fn draw(&self) {
         draw_texture(&self.textures[self.current_frame], self.x, self.y, WHITE);
+
+        for proj in self.projectiles.iter() {
+            proj.draw();
+        }
+    }
+}
+
+struct Projectile {
+    x: f32,
+    y: f32,
+    textures: Rc<Vec<Texture2D>>,
+    frame_time_elapsed: f32,
+}
+
+impl Projectile {
+    fn new(x: f32, y: f32, textures: Rc<Vec<Texture2D>>) -> Self {
+        Projectile {
+            x,
+            y,
+            textures,
+            frame_time_elapsed: 0.0,
+        }
+    }
+
+    fn can_be_removed(&self) -> bool {
+        self.y < 0.0
+    }
+
+    fn update(&mut self) {
+        self.frame_time_elapsed += get_frame_time();
+        if self.frame_time_elapsed >= 0.01 {
+            self.y -= 5.0;
+
+            self.frame_time_elapsed = 0.0;
+        }
+    }
+
+    fn draw(&self) {
+        draw_texture(&self.textures[1], self.x, self.y, WHITE);
+        draw_texture(&self.textures[1], self.x + 54.0, self.y, WHITE);
     }
 }
 
