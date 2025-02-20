@@ -30,6 +30,21 @@ async fn main() {
         ])
         .await,
     );
+    let enemy_textures: Rc<Vec<Texture2D>> = Rc::new(
+        load_textures(&[
+            "assets/enemy/enemy_000.png",
+            "assets/enemy/enemy_001.png",
+            "assets/enemy/enemy_002.png",
+            "assets/enemy/enemy_003.png",
+            "assets/enemy/enemy_004.png",
+            "assets/enemy/enemy_005.png",
+            "assets/enemy/enemy_006.png",
+            "assets/enemy/enemy_007.png",
+            "assets/enemy/enemy_008.png",
+            "assets/enemy/enemy_009.png",
+        ])
+        .await,
+    );
     let proj_textures: Rc<Vec<Texture2D>> = Rc::new(
         load_textures(&[
             "assets/projectile/proj_001.png",
@@ -41,15 +56,56 @@ async fn main() {
         .await,
     );
 
-    let mut player = Ship::new(
+    let mut player: Ship = Ship::new(
         screen_width() / 2.0,
         screen_height() - 180.0,
+        0.0,
+        true,
         player_textures.clone(),
         proj_textures.clone(),
     );
 
+    let mut enemies: Vec<Ship> = Vec::new();
+    let enemy_positions = [
+        screen_width() * 0.1,
+        screen_width() * 0.7,
+        screen_width() * 0.9,
+        screen_width() * 0.5,
+        screen_width() * 0.3,
+        screen_width() * 0.8,
+        screen_width() * 0.2,
+        screen_width() * 0.6,
+        screen_width() * 0.4,
+        screen_width() * 0.9,
+        screen_width() * 0.5,
+        screen_width() * 0.3,
+        screen_width() * 0.1,
+        screen_width() * 0.7,
+        screen_width() * 0.2,
+        screen_width() * 0.6,
+        screen_width() * 0.4,
+        screen_width() * 0.8,
+    ];
+    let mut enemy_positions_idx: usize = 0;
+    let mut enemy_timer: f32 = 0.0;
+
     loop {
         clear_background(BLACK);
+
+        enemy_timer += get_frame_time();
+        if enemy_timer >= 2.0 {
+            enemies.push(Ship::new(
+                enemy_positions[enemy_positions_idx],
+                -150.0,
+                3.1415,
+                false,
+                enemy_textures.clone(),
+                proj_textures.clone(),
+            ));
+            enemy_positions_idx = (enemy_positions_idx + 1) % enemy_positions.len();
+
+            enemy_timer = 0.0;
+        }
 
         if is_key_down(KeyCode::A) {
             player.mov(-5.0);
@@ -62,8 +118,14 @@ async fn main() {
         }
 
         player.update();
+        for enemy in enemies.iter_mut() {
+            enemy.update();
+        }
 
         player.draw();
+        for enemy in enemies.iter() {
+            enemy.draw();
+        }
 
         next_frame().await
     }
@@ -72,6 +134,8 @@ async fn main() {
 struct Ship {
     x: f32,
     y: f32,
+    angle: f32,
+    is_player: bool,
     textures: Rc<Vec<Texture2D>>,
     proj_textures: Rc<Vec<Texture2D>>,
     projectiles: Vec<Projectile>,
@@ -83,12 +147,16 @@ impl Ship {
     fn new(
         x: f32,
         y: f32,
+        angle: f32,
+        is_player: bool,
         textures: Rc<Vec<Texture2D>>,
         proj_textures: Rc<Vec<Texture2D>>,
     ) -> Self {
         Ship {
             x,
             y,
+            angle,
+            is_player,
             textures,
             proj_textures,
             projectiles: Vec::new(),
@@ -112,6 +180,10 @@ impl Ship {
     fn update(&mut self) {
         self.frame_time_elapsed += get_frame_time();
         if self.frame_time_elapsed >= 0.1 {
+            if !self.is_player {
+                self.y += 2.0;
+            }
+
             self.current_frame = (self.current_frame + 1) % self.textures.len();
 
             self.frame_time_elapsed = 0.0;
@@ -124,7 +196,16 @@ impl Ship {
     }
 
     fn draw(&self) {
-        draw_texture(&self.textures[self.current_frame], self.x, self.y, WHITE);
+        draw_texture_ex(
+            &self.textures[self.current_frame],
+            self.x,
+            self.y,
+            WHITE,
+            DrawTextureParams {
+                rotation: self.angle,
+                ..Default::default()
+            },
+        );
 
         for proj in self.projectiles.iter() {
             proj.draw();
