@@ -30,6 +30,19 @@ async fn main() {
         ])
         .await,
     );
+    let player_expl_textures: Rc<Vec<Texture2D>> = Rc::new(
+        load_textures(&[
+            "assets/player/explosion/player_expl_000.png",
+            "assets/player/explosion/player_expl_001.png",
+            "assets/player/explosion/player_expl_002.png",
+            "assets/player/explosion/player_expl_003.png",
+            "assets/player/explosion/player_expl_004.png",
+            "assets/player/explosion/player_expl_005.png",
+            "assets/player/explosion/player_expl_006.png",
+            "assets/player/explosion/player_expl_007.png",
+        ])
+        .await,
+    );
     let enemy_textures: Rc<Vec<Texture2D>> = Rc::new(
         load_textures(&[
             "assets/enemy/enemy_000.png",
@@ -42,6 +55,19 @@ async fn main() {
             "assets/enemy/enemy_007.png",
             "assets/enemy/enemy_008.png",
             "assets/enemy/enemy_009.png",
+        ])
+        .await,
+    );
+    let enemy_expl_textures: Rc<Vec<Texture2D>> = Rc::new(
+        load_textures(&[
+            "assets/enemy/explosion/enemy_expl_000.png",
+            "assets/enemy/explosion/enemy_expl_001.png",
+            "assets/enemy/explosion/enemy_expl_002.png",
+            "assets/enemy/explosion/enemy_expl_003.png",
+            "assets/enemy/explosion/enemy_expl_004.png",
+            "assets/enemy/explosion/enemy_expl_005.png",
+            "assets/enemy/explosion/enemy_expl_006.png",
+            "assets/enemy/explosion/enemy_expl_007.png",
         ])
         .await,
     );
@@ -62,6 +88,7 @@ async fn main() {
         0.0,
         true,
         player_textures.clone(),
+        player_expl_textures.clone(),
         proj_textures.clone(),
     );
 
@@ -92,6 +119,7 @@ async fn main() {
     loop {
         clear_background(BLACK);
 
+        enemies.retain(|enemy| !enemy.can_be_removed());
         enemy_timer += get_frame_time();
         if enemy_timer >= 2.0 {
             enemies.push(Ship::new(
@@ -100,6 +128,7 @@ async fn main() {
                 3.1415,
                 false,
                 enemy_textures.clone(),
+                enemy_expl_textures.clone(),
                 proj_textures.clone(),
             ));
             enemy_positions_idx = (enemy_positions_idx + 1) % enemy_positions.len();
@@ -114,7 +143,8 @@ async fn main() {
             player.mov(5.0);
         }
         if is_key_pressed(KeyCode::Space) {
-            player.shoot();
+            // player.shoot();
+            enemies[0].destroy();
         }
 
         player.update();
@@ -137,7 +167,9 @@ struct Ship {
     angle: f32,
     is_player: bool,
     textures: Rc<Vec<Texture2D>>,
+    textures_expl: Rc<Vec<Texture2D>>,
     proj_textures: Rc<Vec<Texture2D>>,
+    state: ShipState,
     projectiles: Vec<Projectile>,
     current_frame: usize,
     frame_time_elapsed: f32,
@@ -150,6 +182,7 @@ impl Ship {
         angle: f32,
         is_player: bool,
         textures: Rc<Vec<Texture2D>>,
+        textures_expl: Rc<Vec<Texture2D>>,
         proj_textures: Rc<Vec<Texture2D>>,
     ) -> Self {
         Ship {
@@ -158,7 +191,9 @@ impl Ship {
             angle,
             is_player,
             textures,
+            textures_expl,
             proj_textures,
+            state: ShipState::Normal,
             projectiles: Vec::new(),
             current_frame: 0,
             frame_time_elapsed: 0.0,
@@ -177,14 +212,47 @@ impl Ship {
         ));
     }
 
+    fn destroy(&mut self) {
+        self.state = ShipState::DestroyStart;
+    }
+
+    fn can_be_removed(&self) -> bool {
+        matches!(self.state, ShipState::Destroyed) || self.y > screen_height()
+    }
+
     fn update(&mut self) {
         self.frame_time_elapsed += get_frame_time();
         if self.frame_time_elapsed >= 0.1 {
-            if !self.is_player {
+            if matches!(self.state, ShipState::Normal) && !self.is_player {
                 self.y += 2.0;
             }
 
-            self.current_frame = (self.current_frame + 1) % self.textures.len();
+            let mut textures_len = self.textures.len();
+            if !matches!(self.state, ShipState::Normal) {
+                textures_len = self.textures_expl.len();
+            }
+            self.current_frame = (self.current_frame + 1) % textures_len;
+            match self.state {
+                ShipState::DestroyStart => {
+                    if self.is_player {
+                        self.x -= 20.4;
+                    } else {
+                        self.x -= 26.0;
+                        self.y += 45.0;
+                    }
+                    self.current_frame = 0;
+                    self.state = ShipState::Destroying;
+                }
+                ShipState::Destroying => {
+                    if self.current_frame == self.textures_expl.len() - 1 {
+                        self.state = ShipState::DestroyEnd;
+                    }
+                }
+                ShipState::DestroyEnd => {
+                    self.state = ShipState::Destroyed;
+                }
+                _ => {}
+            }
 
             self.frame_time_elapsed = 0.0;
         }
@@ -196,8 +264,15 @@ impl Ship {
     }
 
     fn draw(&self) {
+        let textures = match self.state {
+            ShipState::Normal => &self.textures,
+            ShipState::DestroyStart => &self.textures,
+            ShipState::Destroying => &self.textures_expl,
+            ShipState::DestroyEnd => &self.textures_expl,
+            ShipState::Destroyed => return,
+        };
         draw_texture_ex(
-            &self.textures[self.current_frame],
+            &textures[self.current_frame],
             self.x,
             self.y,
             WHITE,
@@ -211,6 +286,14 @@ impl Ship {
             proj.draw();
         }
     }
+}
+
+enum ShipState {
+    Normal,
+    DestroyStart,
+    Destroying,
+    DestroyEnd,
+    Destroyed,
 }
 
 struct Projectile {
