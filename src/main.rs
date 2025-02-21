@@ -143,19 +143,30 @@ async fn main() {
             player.mov(5.0);
         }
         if is_key_pressed(KeyCode::Space) {
-            // player.shoot();
-            enemies[0].destroy();
+            player.shoot();
         }
 
-        player.update();
+        for proj in player.projectiles.iter_mut() {
+            for enemy in enemies.iter_mut() {
+                if proj.x > enemy.x - 32.0
+                    && proj.x < enemy.x + 32.0
+                    && (proj.y - enemy.y).abs() < 150.0
+                {
+                    enemy.notify_hit();
+                    proj.notify_hit();
+                }
+            }
+        }
+
         for enemy in enemies.iter_mut() {
             enemy.update();
         }
+        player.update();
 
-        player.draw();
         for enemy in enemies.iter() {
             enemy.draw();
         }
+        player.draw();
 
         next_frame().await
     }
@@ -219,6 +230,8 @@ impl Ship {
     fn can_be_removed(&self) -> bool {
         matches!(self.state, ShipState::Destroyed) || self.y > screen_height()
     }
+
+    fn notify_hit(&mut self) {}
 
     fn update(&mut self) {
         self.frame_time_elapsed += get_frame_time();
@@ -300,6 +313,8 @@ struct Projectile {
     x: f32,
     y: f32,
     textures: Rc<Vec<Texture2D>>,
+    hit: bool,
+    current_frame: usize,
     frame_time_elapsed: f32,
 }
 
@@ -309,6 +324,8 @@ impl Projectile {
             x,
             y,
             textures,
+            hit: false,
+            current_frame: 1,
             frame_time_elapsed: 0.0,
         }
     }
@@ -317,18 +334,36 @@ impl Projectile {
         self.y < 0.0
     }
 
+    fn notify_hit(&mut self) {
+        self.hit = true;
+    }
+
     fn update(&mut self) {
         self.frame_time_elapsed += get_frame_time();
         if self.frame_time_elapsed >= 0.01 {
-            self.y -= 5.0;
+            if !self.hit {
+                self.y -= 5.0;
+            }
+
+            if self.hit {
+                self.current_frame += 1;
+                if self.current_frame == self.textures.len() {
+                    self.current_frame = self.textures.len() - 1;
+                    self.y = -1000.0;
+                }
+            }
 
             self.frame_time_elapsed = 0.0;
         }
     }
 
     fn draw(&self) {
-        draw_texture(&self.textures[1], self.x, self.y, WHITE);
-        draw_texture(&self.textures[1], self.x + 54.0, self.y, WHITE);
+        draw_texture(
+            &self.textures[self.current_frame],
+            self.x + 27.0,
+            self.y - 60.0,
+            WHITE,
+        );
     }
 }
 
