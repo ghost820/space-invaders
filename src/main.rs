@@ -30,6 +30,8 @@ async fn main() {
         ])
         .await,
     );
+    let player_dmg_textures: Rc<Vec<Texture2D>> =
+        Rc::new(load_textures(&["assets/player/player_dmg.png"]).await);
     let player_expl_textures: Rc<Vec<Texture2D>> = Rc::new(
         load_textures(&[
             "assets/player/explosion/player_expl_000.png",
@@ -58,6 +60,8 @@ async fn main() {
         ])
         .await,
     );
+    let enemy_dmg_textures: Rc<Vec<Texture2D>> =
+        Rc::new(load_textures(&["assets/enemy/enemy_dmg.png"]).await);
     let enemy_expl_textures: Rc<Vec<Texture2D>> = Rc::new(
         load_textures(&[
             "assets/enemy/explosion/enemy_expl_000.png",
@@ -88,6 +92,7 @@ async fn main() {
         0.0,
         true,
         player_textures.clone(),
+        player_dmg_textures.clone(),
         player_expl_textures.clone(),
         proj_textures.clone(),
     );
@@ -128,6 +133,7 @@ async fn main() {
                 3.1415,
                 false,
                 enemy_textures.clone(),
+                enemy_dmg_textures.clone(),
                 enemy_expl_textures.clone(),
                 proj_textures.clone(),
             ));
@@ -143,19 +149,48 @@ async fn main() {
             player.mov(5.0);
         }
         if is_key_pressed(KeyCode::Space) {
-            // player.shoot();
-            enemies[0].destroy();
+            player.shoot();
         }
 
-        player.update();
+        for i in 0..enemies.len() {
+            for j in (i + 1)..enemies.len() {
+                if enemies[i].x == enemies[j].x && (enemies[i].y - enemies[j].y).abs() <= 80.0 {
+                    let mut upper_ship_idx = i;
+                    let mut lower_ship_idx = j;
+                    if enemies[j].y < enemies[i].y {
+                        upper_ship_idx = j;
+                        lower_ship_idx = i;
+                    }
+
+                    if !enemies[lower_ship_idx].will_be_destroyed() {
+                        enemies[upper_ship_idx].notify_hit(50);
+                    }
+                    enemies[lower_ship_idx].destroy();
+                }
+            }
+        }
+
+        for proj in player.projectiles.iter_mut().filter(|proj| !proj.hit) {
+            for enemy in enemies.iter_mut() {
+                if proj.x > enemy.x - 32.0
+                    && proj.x < enemy.x + 32.0
+                    && (proj.y - enemy.y).abs() < 150.0
+                {
+                    enemy.notify_hit(10);
+                    proj.notify_hit();
+                }
+            }
+        }
+
         for enemy in enemies.iter_mut() {
             enemy.update();
         }
+        player.update();
 
-        player.draw();
         for enemy in enemies.iter() {
             enemy.draw();
         }
+        player.draw();
 
         next_frame().await
     }
@@ -167,9 +202,11 @@ struct Ship {
     angle: f32,
     is_player: bool,
     textures: Rc<Vec<Texture2D>>,
+    textures_dmg: Rc<Vec<Texture2D>>,
     textures_expl: Rc<Vec<Texture2D>>,
     proj_textures: Rc<Vec<Texture2D>>,
     state: ShipState,
+    health: i32,
     projectiles: Vec<Projectile>,
     current_frame: usize,
     frame_time_elapsed: f32,
@@ -182,6 +219,7 @@ impl Ship {
         angle: f32,
         is_player: bool,
         textures: Rc<Vec<Texture2D>>,
+        textures_dmg: Rc<Vec<Texture2D>>,
         textures_expl: Rc<Vec<Texture2D>>,
         proj_textures: Rc<Vec<Texture2D>>,
     ) -> Self {
@@ -191,9 +229,11 @@ impl Ship {
             angle,
             is_player,
             textures,
+            textures_dmg,
             textures_expl,
             proj_textures,
             state: ShipState::Normal,
+            health: 100,
             projectiles: Vec::new(),
             current_frame: 0,
             frame_time_elapsed: 0.0,
@@ -213,18 +253,43 @@ impl Ship {
     }
 
     fn destroy(&mut self) {
-        self.state = ShipState::DestroyStart;
+        if matches!(self.state, ShipState::Normal) {
+            self.state = ShipState::DestroyStart;
+        }
+    }
+
+    fn will_be_destroyed(&self) -> bool {
+        match self.state {
+            ShipState::DestroyStart => true,
+            ShipState::Destroying => true,
+            ShipState::DestroyEnd => true,
+            ShipState::Destroyed => true,
+            _ => false,
+        }
     }
 
     fn can_be_removed(&self) -> bool {
         matches!(self.state, ShipState::Destroyed) || self.y > screen_height()
     }
 
+    fn notify_hit(&mut self, damage: i32) {
+        if matches!(self.state, ShipState::Normal) {
+            self.health -= damage;
+
+            if self.health <= 0 {
+                self.destroy();
+            } else if self.health <= 50 {
+                self.textures = self.textures_dmg.clone();
+                self.current_frame = 0;
+            }
+        }
+    }
+
     fn update(&mut self) {
         self.frame_time_elapsed += get_frame_time();
         if self.frame_time_elapsed >= 0.1 {
             if matches!(self.state, ShipState::Normal) && !self.is_player {
-                self.y += 2.0;
+                self.y += if self.health > 50 { 2.0 } else { 1.0 };
             }
 
             let mut textures_len = self.textures.len();
@@ -300,6 +365,8 @@ struct Projectile {
     x: f32,
     y: f32,
     textures: Rc<Vec<Texture2D>>,
+    hit: bool,
+    current_frame: usize,
     frame_time_elapsed: f32,
 }
 
@@ -309,6 +376,8 @@ impl Projectile {
             x,
             y,
             textures,
+            hit: false,
+            current_frame: 1,
             frame_time_elapsed: 0.0,
         }
     }
@@ -317,18 +386,36 @@ impl Projectile {
         self.y < 0.0
     }
 
+    fn notify_hit(&mut self) {
+        self.hit = true;
+    }
+
     fn update(&mut self) {
         self.frame_time_elapsed += get_frame_time();
         if self.frame_time_elapsed >= 0.01 {
-            self.y -= 5.0;
+            if !self.hit {
+                self.y -= 5.0;
+            }
+
+            if self.hit {
+                self.current_frame += 1;
+                if self.current_frame == self.textures.len() {
+                    self.current_frame = self.textures.len() - 1;
+                    self.y = -1000.0;
+                }
+            }
 
             self.frame_time_elapsed = 0.0;
         }
     }
 
     fn draw(&self) {
-        draw_texture(&self.textures[1], self.x, self.y, WHITE);
-        draw_texture(&self.textures[1], self.x + 54.0, self.y, WHITE);
+        draw_texture(
+            &self.textures[self.current_frame],
+            self.x + 27.0,
+            self.y - 60.0,
+            WHITE,
+        );
     }
 }
 
